@@ -2,6 +2,7 @@ use aidoku::{
 	helpers::substring::Substring,
 	prelude::*,
 	std::{
+		defaults::defaults_get,
 		net::{HttpMethod, Request},
 		ObjectRef, String,
 	},
@@ -46,9 +47,19 @@ pub fn gen_referer(image_url: String) -> String {
 }
 
 pub fn get_json(body: String) -> ObjectRef {
-	Request::new(API_URL, HttpMethod::Post)
+	let mut request = Request::new(API_URL, HttpMethod::Post)
 		.body(body.as_bytes())
-		.header("Content-Type", "application/json")
+		.header("Content-Type", "application/json");
+
+	let cookie = defaults_get("cookie")
+        .and_then(|v| v.as_string())
+        .map(|s| s.read())
+        .unwrap_or_default();
+	if !cookie.is_empty() {
+		request = request.header("Cookie", &cookie);
+	}
+
+	request
 		.json()
 		.unwrap()
 		.as_object()
