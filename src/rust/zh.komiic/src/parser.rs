@@ -4,6 +4,8 @@ use aidoku::{
 	Chapter, Manga, MangaContentRating, MangaStatus, MangaViewer, Page,
 };
 
+use alloc::string::ToString;
+
 pub fn parse_manga_list(manga_list: ArrayRef) -> Vec<Manga> {
 	manga_list
 		.map(|manga| parse_manga(manga.as_object().unwrap()))
@@ -69,25 +71,46 @@ pub fn parse_manga(manga: ObjectRef) -> Manga {
 }
 
 pub fn parse_chapter_list(manga_id: String, chapter_list: ArrayRef) -> Vec<Chapter> {
+	let mut volumes: Vec<Chapter> = Vec::new();
 	let mut chapters: Vec<Chapter> = Vec::new();
 
-	for (index, item) in chapter_list.enumerate() {
+	for item in chapter_list {
 		let chapter = item.as_object().unwrap();
 		let id = chapter.get("id").as_string().unwrap().read();
-		let title = chapter.get("serial").as_string().unwrap().read();
-		let chapter = (index + 1) as f32;
+		let serial = chapter.get("serial").as_string().unwrap().read();
+		let chapter_type = chapter.get("type").as_string().unwrap().read();
 		let url = helper::gen_chapter_url(manga_id.clone(), id.clone());
-		chapters.push(Chapter {
-			id,
-			title,
-			chapter,
-			url,
-			..Default::default()
-		})
+
+		if chapter_type.as_str() == "book" {
+			let volume_num = serial.parse::<f32>().unwrap_or(0.0);
+			volumes.push(Chapter {
+				id,
+				title: serial,
+				volume: volume_num,
+				chapter: -1.0,
+				scanlator: chapter_type.to_string(),
+				url,
+				..Default::default()
+			});
+		} else {
+			let chapter_num = serial.parse::<f32>().unwrap_or(0.0);
+			chapters.push(Chapter {
+				id,
+				title: serial,
+				volume: -1.0,
+				chapter: chapter_num,
+				scanlator: chapter_type.to_string(),
+				url,
+				..Default::default()
+			});
+		}
 	}
 
-	chapters.reverse();
-	chapters
+	let mut all_chapters = volumes;
+	all_chapters.extend(chapters);
+
+	all_chapters.reverse();
+	all_chapters
 }
 
 pub fn parse_page_list(manga_id: String, chapter_id: String, page_list: ArrayRef) -> Vec<Page> {

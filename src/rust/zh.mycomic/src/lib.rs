@@ -14,6 +14,7 @@ use aidoku::{
 	MangaViewer, Page,
 };
 use alloc::string::ToString;
+use regex::Regex;
 
 const WWW_URL: &str = "https://mycomic.com/cn";
 
@@ -66,6 +67,19 @@ const FILTER_YEAR: [&str; 21] = [
 ];
 const FILTER_END: [&str; 3] = ["", "0", "1"];
 const FILTER_SORT: [&str; 3] = ["", "update", "views"];
+
+fn extract_chapter_number(title: &str) -> Option<f32> {
+	let re = Regex::new(r"(?:第\s*)(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:话|話|章|回|卷|册|冊)").unwrap();
+	if let Some(captures) = re.captures(title) {
+		let num_match = captures.get(1).or_else(|| captures.get(2));
+		if let Some(num_match) = num_match {
+			if let Ok(num) = num_match.as_str().parse::<f32>() {
+				return Some(num);
+			}
+		}
+	}
+	None
+}
 
 #[get_manga_list]
 fn get_manga_list(filters: Vec<Filter>, page: i32) -> Result<MangaPageResult> {
@@ -185,7 +199,28 @@ fn get_manga_list(filters: Vec<Filter>, page: i32) -> Result<MangaPageResult> {
 fn get_manga_details(id: String) -> Result<Manga> {
 	let url = format!("{}/comics/{}", WWW_URL, id.clone());
 	let html = Request::new(url.clone(), HttpMethod::Get).html()?;
-	let cover = html.select("meta[name='og:image']").attr("content").read();
+	let cdn_url = html.select("body[x-data]").attr("x-data").read();
+	let cdn_base = if let Some(start) = cdn_url.find("cdnUrl: '") {
+		if let Some(end) = cdn_url[start + 9..].find("'") {
+			format!("https://{}", &cdn_url[start + 9..start + 9 + end])
+		} else {
+			"https://biccam.com".to_string()
+		}
+	} else {
+		"https://biccam.com".to_string()
+	};
+
+	let mut cover = html.select("meta[name='og:image']").attr("content").read();
+	if cover.is_empty() {
+		cover = html.select("img.object-cover").attr("src").read();
+	}
+	if !cover.is_empty() && !cover.starts_with("http") {
+		if cover.starts_with("//") {
+			cover = format!("https:{}", cover);
+		} else if cover.starts_with("/") {
+			cover = format!("{}{}", cdn_base, cover);
+		}
+	}
 	let title = html
 		.select("title")
 		.text()
@@ -239,39 +274,72 @@ fn get_manga_details(id: String) -> Result<Manga> {
 fn get_chapter_list(id: String) -> Result<Vec<Chapter>> {
 	let url = format!("{}/comics/{}", WWW_URL, id.clone());
 	let html = Request::new(url.clone(), HttpMethod::Get).html()?;
-	let data = html.select("div[x-data*='chapters']").attr("x-data").read();
-	let mut text = data
-		.substring_after("chapters:")
-		.unwrap()
-		.substring_before("],")
-		.unwrap()
-		.trim()
-		.to_string();
-	text.push_str("]");
-	let data = json::parse(&text)?;
-	let list = data.as_array()?;
-	let len = list.len();
-	let mut chapters: Vec<Chapter> = Vec::new();
+	let mut all_chapters: Vec<Chapter> = Vec::new();
 
-	for (index, item) in list.enumerate() {
-		let item = match item.as_object() {
-			Ok(item) => item,
+	for element in html.select("div[x-data*='chapters']").array() {
+		let element = match element.as_node() {
+			Ok(node) => node,
 			Err(_) => continue,
 		};
-		let id = item.get("id").as_int().unwrap().to_string();
-		let title = item.get("title").as_string().unwrap().read();
-		let chapter = (len - index) as f32;
-		let url = format!("{}/chapters/{}", WWW_URL, id);
-		chapters.push(Chapter {
-			id,
-			title,
-			chapter,
-			url,
-			..Default::default()
-		});
+
+		let scanlator = element
+			.select("div[data-flux-subheading] div")
+			.first()
+			.text()
+			.read()
+			.trim()
+			.to_string();
+
+		let data = element.attr("x-data").read();
+		let mut text = match data.substring_after("chapters:") {
+			Some(t) => t,
+			None => continue,
+		};
+		text = match text.substring_before("],") {
+			Some(t) => t,
+			None => continue,
+		};
+		let text = text.trim().to_string() + "]";
+		let data = match json::parse(&text) {
+			Ok(d) => d,
+			Err(_) => continue,
+		};
+		let list = match data.as_array() {
+			Ok(l) => l,
+			Err(_) => continue,
+		};
+		let len = list.len();
+
+		for (index, item) in list.enumerate() {
+			let item = match item.as_object() {
+				Ok(item) => item,
+				Err(_) => continue,
+			};
+			let chapter_id = item.get("id").as_int().unwrap().to_string();
+			let title = item.get("title").as_string().unwrap().read();
+
+			let chapter_num = (len - index) as f32;
+			let chapter_or_volume = extract_chapter_number(&title).unwrap_or(chapter_num);
+			let (ch, vo) = if title.trim().ends_with('卷') {
+				(-1.0, chapter_or_volume)
+			} else {
+				(chapter_or_volume, -1.0)
+			};
+
+			let chapter_url = format!("{}/chapters/{}", WWW_URL, chapter_id);
+			all_chapters.push(Chapter {
+				id: chapter_id,
+				title,
+				volume: vo,
+				chapter: ch,
+				url: chapter_url,
+				scanlator: scanlator.clone(),
+				..Default::default()
+			});
+		}
 	}
 
-	Ok(chapters)
+	Ok(all_chapters)
 }
 
 #[get_page_list]

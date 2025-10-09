@@ -4,7 +4,7 @@ extern crate alloc;
 use aidoku::{
 	error::Result,
 	prelude::*,
-	std::{net::Request, String, Vec},
+	std::{defaults::defaults_get, net::Request, String, Vec},
 	Chapter, Filter, FilterType, Listing, Manga, MangaPageResult, Page,
 };
 use alloc::string::ToString;
@@ -154,7 +154,20 @@ fn get_page_list(manga_id: String, chapter_id: String) -> Result<Vec<Page>> {
 }
 
 #[modify_image_request]
-fn modify_image_request(request: Request) {
-	let url = request.url().read();
-	request.header("Referer", &helper::gen_referer(url));
+fn modify_image_request(request: Request) -> Request {
+    let url = request.url().read();
+
+    let cookie = defaults_get("cookie")
+        .and_then(|v| v.as_string())
+        .map(|s| s.read())
+        .unwrap_or_default();
+
+    let request = request
+        .header("Referer", &helper::gen_referer(url));
+
+    if cookie.is_empty() {
+        request
+    } else {
+        request.header("Cookie", &cookie)
+    }
 }

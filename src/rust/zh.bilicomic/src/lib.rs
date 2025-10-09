@@ -13,8 +13,9 @@ use aidoku::{
 	MangaViewer, Page,
 };
 use alloc::string::ToString;
+use regex::Regex;
 
-const WWW_URL: &str = "https://www.bilimanga.net";
+const BASE_URL: &str = "https://www.bilimanga.net";
 const UA: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1";
 
 const FILTER_TAGID: [&str; 66] = [
@@ -47,10 +48,40 @@ const FILTER_UPDATE: [&str; 5] = ["0", "1", "2", "3", "4"];
 
 fn gen_request(url: String, method: HttpMethod) -> Request {
 	Request::new(url, method)
-		.header("Origin", WWW_URL)
+		.header("Origin", BASE_URL)
 		.header("User-Agent", UA)
 		.header("Accept-Language", "zh-CN,zh;q=0.9")
 		.header("Cookie", "night=0")
+}
+
+fn extract_chapter_number(title: &str) -> Option<f32> {
+	let re = Regex::new(r"(?:第\s*)([\d０-９]+(?:\.[\d０-９]+)?)|([\d０-９]+(?:\.[\d０-９]+)?)\s*(?:话|話|章|回|卷|册|冊)").unwrap();
+	if let Some(captures) = re.captures(title) {
+		let num_match = captures.get(1).or_else(|| captures.get(2));
+		if let Some(num_match) = num_match {
+			let num_str = num_match.as_str()
+				.chars()
+				.map(|c| match c {
+					'０' => '0',
+					'１' => '1',
+					'２' => '2',
+					'３' => '3',
+					'４' => '4',
+					'５' => '5',
+					'６' => '6',
+					'７' => '7',
+					'８' => '8',
+					'９' => '9',
+					'．' => '.',
+					other => other,
+				})
+				.collect::<String>();
+			if let Ok(num) = num_str.parse::<f32>() {
+				return Some(num);
+			}
+		}
+	}
+	None
 }
 
 #[get_manga_list]
@@ -112,18 +143,18 @@ fn get_manga_list(filters: Vec<Filter>, page: i32) -> Result<MangaPageResult> {
 	let url = if query.is_empty() {
 		format!(
 			"{}/filter/{}_{}_{}_{}_{}_{}_{}_{}_{}_0.html",
-			WWW_URL, order, tagid, isfull, anime, rgroupid, sortid, update, quality, page
+			BASE_URL, order, tagid, isfull, anime, rgroupid, sortid, update, quality, page
 		)
 	} else {
 		format!(
 			"{}/search/{}_{}.html",
-			WWW_URL,
+			BASE_URL,
 			encode_uri(query.clone()),
 			page
 		)
 	};
 	let html = gen_request(url, HttpMethod::Get)
-		.header("Referer", &format!("{}/search.html", WWW_URL))
+		.header("Referer", &format!("{}/search.html", BASE_URL))
 		.html()?;
 	let link = html.select("#pagelink");
 	let has_more = if query.is_empty() {
@@ -230,7 +261,7 @@ fn get_manga_listing(listing: Listing, page: i32) -> Result<MangaPageResult> {
 		_ => return get_manga_list(Vec::new(), page),
 	}
 
-	let url = format!("{}/top/{}/1.html", WWW_URL, name);
+	let url = format!("{}/top/{}/1.html", BASE_URL, name);
 	let html = gen_request(url, HttpMethod::Get).html()?;
 	let has_more = false;
 	let mut mangas: Vec<Manga> = Vec::new();
@@ -268,7 +299,7 @@ fn get_manga_listing(listing: Listing, page: i32) -> Result<MangaPageResult> {
 
 #[get_manga_details]
 fn get_manga_details(id: String) -> Result<Manga> {
-	let url = format!("{}/detail/{}.html", WWW_URL, id.clone());
+	let url = format!("{}/detail/{}.html", BASE_URL, id.clone());
 	let html = gen_request(url.clone(), HttpMethod::Get).html()?;
 	let cover = html.select(".book-cover").attr("src").read();
 	let title = html.select("h1.book-title").text().read();
@@ -321,41 +352,94 @@ fn get_manga_details(id: String) -> Result<Manga> {
 
 #[get_chapter_list]
 fn get_chapter_list(id: String) -> Result<Vec<Chapter>> {
-	let url = format!("{}/read/{}/catalog", WWW_URL, id.clone());
+	let url = format!("{}/read/{}/catalog", BASE_URL, id.clone());
 	let html = gen_request(url.clone(), HttpMethod::Get).html()?;
-	let list = html.select(".catalog-volume .chapter-li-a").array();
+	let volumes = html.select(".catalog-volume").array();
 	let mut chapters: Vec<Chapter> = Vec::new();
 
-	for (index, item) in list.enumerate() {
-		let item = match item.as_node() {
-			Ok(item) => item,
+	for volume in volumes {
+		let volume = match volume.as_node() {
+			Ok(node) => node,
 			Err(_) => continue,
 		};
-		let chapter_id = item
-			.attr("href")
-			.read()
-			.split("/")
-			.map(|a| a.to_string())
-			.filter(|a| !a.is_empty())
-			.collect::<Vec<String>>()
-			.pop()
-			.unwrap()
-			.replace(".html", "");
-		let title = item.select("span").text().read();
-		let chapter = (index + 1) as f32;
-		let url = format!(
-			"{}/read/{}/{}.html",
-			WWW_URL,
-			id.clone(),
-			chapter_id.clone()
-		);
-		chapters.push(Chapter {
-			id: chapter_id,
-			title,
-			chapter,
-			url,
-			..Default::default()
-		});
+		let volume_title = volume.select("h3").text().read();
+		let volume_num = extract_chapter_number(&volume_title).unwrap_or(-1.0);
+		let chapter_links = volume.select(".chapter-li-a").array();
+
+		if !chapter_links.is_empty() {
+			let mut has_javascript_link = false;
+			for link in chapter_links {
+				let link_node = match link.as_node() {
+					Ok(node) => node,
+					Err(_) => continue,
+				};
+				let href = link_node.attr("href").read();
+				if href.starts_with("javascript:") {
+					has_javascript_link = true;
+					break;
+				}
+			}
+			if has_javascript_link {
+				let vol_href = volume.select(".volume-cover-img").attr("href").read();
+				let vol_url = format!("{}{}", BASE_URL, vol_href);
+				let vol_html = gen_request(vol_url, HttpMethod::Get).html()?;
+
+				for chapter_item in vol_html.select(".catalog-volume .chapter-li-a").array() {
+					let chapter_item = match chapter_item.as_node() {
+						Ok(node) => node,
+						Err(_) => continue,
+					};
+					let chapter_href = chapter_item.attr("href").read();
+					let chapter_id = chapter_href
+						.split("/")
+						.map(|a| a.to_string())
+						.filter(|a| !a.is_empty())
+						.collect::<Vec<String>>()
+						.pop()
+						.unwrap()
+						.replace(".html", "");
+					let title = chapter_item.select("span").text().read();
+					let chapter_num = extract_chapter_number(&title).unwrap_or(chapters.len() as f32 + 1.0);
+					let url = format!("{}{}", BASE_URL, chapter_href);
+					chapters.push(Chapter {
+						id: chapter_id,
+						title,
+						volume: volume_num,
+						chapter: chapter_num,
+						url,
+						..Default::default()
+					});
+				}
+			} else {
+				let chapter_links = volume.select(".chapter-li-a").array();
+				for item in chapter_links {
+					let item = match item.as_node() {
+						Ok(item) => item,
+						Err(_) => continue,
+					};
+					let chapter_href = item.attr("href").read();
+					let chapter_id = chapter_href
+						.split("/")
+						.map(|a| a.to_string())
+						.filter(|a| !a.is_empty())
+						.collect::<Vec<String>>()
+						.pop()
+						.unwrap()
+						.replace(".html", "");
+					let title = item.select("span").text().read();
+					let chapter_num = extract_chapter_number(&title).unwrap_or(chapters.len() as f32 + 1.0);
+					let url = format!("{}{}", BASE_URL, chapter_href);
+					chapters.push(Chapter {
+						id: chapter_id,
+						title,
+						chapter: chapter_num,
+						volume: volume_num,
+						url,
+						..Default::default()
+					});
+				}
+			}
+		}
 	}
 	chapters.reverse();
 
@@ -366,7 +450,7 @@ fn get_chapter_list(id: String) -> Result<Vec<Chapter>> {
 fn get_page_list(manga_id: String, chapter_id: String) -> Result<Vec<Page>> {
 	let url = format!(
 		"{}/read/{}/{}.html",
-		WWW_URL,
+		BASE_URL,
 		manga_id.clone(),
 		chapter_id.clone()
 	);
@@ -392,5 +476,5 @@ fn get_page_list(manga_id: String, chapter_id: String) -> Result<Vec<Page>> {
 
 #[modify_image_request]
 fn modify_image_request(request: Request) {
-	request.header("User-Agent", UA).header("Referer", WWW_URL);
+	request.header("User-Agent", UA).header("Referer", BASE_URL);
 }
