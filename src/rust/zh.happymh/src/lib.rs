@@ -5,6 +5,7 @@ use aidoku::{
 	error::Result,
 	prelude::*,
 	std::{
+		defaults::defaults_get,
 		net::{HttpMethod, Request},
 		ObjectRef, String, Vec,
 	},
@@ -13,8 +14,13 @@ use aidoku::{
 };
 use alloc::string::ToString;
 
-const WWW_URL: &str = "https://m.happymh.com";
-const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+fn get_url() -> String {
+	defaults_get("url").unwrap().as_string().unwrap().read()
+}
+
+fn user_agent() -> String {
+	defaults_get("User-Agent").unwrap().as_string().unwrap().read()
+}
 
 const FILTER_GENRE: [&str; 132] = [
 	"",
@@ -199,23 +205,26 @@ fn get_manga_list(filters: Vec<Filter>, page: i32) -> Result<MangaPageResult> {
 		}
 	}
 
+	let base_url = get_url();
+
 	let request = if query.is_empty() {
 		let url = format!(
 			"{}/apis/c/index?genre={}&area={}&audience={}&series_status={}&order={}&pn={}",
-			WWW_URL, genre, area, audience, status, order, page
+			base_url, genre, area, audience, status, order, page
 		);
-		Request::new(url, HttpMethod::Get).header("Referer", &format!("{}/latest", WWW_URL))
+		Request::new(url, HttpMethod::Get).header("Referer", &format!("{}/latest", base_url))
 	} else {
-		let url = format!("{}/v2.0/apis/manga/ssearch", WWW_URL);
+		let url = format!("{}/v2.0/apis/manga/ssearch", base_url);
 		let body = format!("searchkey={}&v=v2.13", query);
 		Request::new(url, HttpMethod::Post)
 			.header("Content-Type", "application/x-www-form-urlencoded")
-			.header("Referer", &format!("{}/sssearch", WWW_URL))
+			.header("Referer", &format!("{}/sssearch", base_url))
 			.body(body.as_bytes())
 	};
+	let ua = user_agent();
 	let json = request
-		.header("User-Agent", &UA)
-		.header("Origin", &WWW_URL)
+		.header("User-Agent", &ua)
+		.header("Origin", &base_url)
 		.json()?;
 	let data = json.as_object()?;
 	let data = data.get("data").as_object()?;
@@ -275,12 +284,13 @@ fn get_manga_listing(listing: Listing, page: i32) -> Result<MangaPageResult> {
 		}
 		_ => return get_manga_list(Vec::new(), page),
 	}
-
-	let url = format!("{}/rank/{}", WWW_URL, name);
+	let base_url = get_url();
+	let ua = user_agent();
+	let url = format!("{}/rank/{}", base_url, name);
 	let html = Request::new(url.clone(), HttpMethod::Get)
 		.header("Referer", &url)
-		.header("User-Agent", &UA)
-		.header("Origin", &WWW_URL)
+		.header("User-Agent", &ua)
+		.header("Origin", &base_url)
 		.html()?;
 
 	let list = html.select(".manga-rank").array();
@@ -322,11 +332,13 @@ fn get_manga_listing(listing: Listing, page: i32) -> Result<MangaPageResult> {
 
 #[get_manga_details]
 fn get_manga_details(id: String) -> Result<Manga> {
-	let url = format!("{}/manga/{}", WWW_URL, id.clone());
+	let base_url = get_url();
+	let url = format!("{}/manga/{}", base_url, id.clone());
+	let ua = user_agent();
 	let html = Request::new(url.clone(), HttpMethod::Get)
-		.header("Referer", &format!("{}/latest", WWW_URL))
-		.header("User-Agent", &UA)
-		.header("Origin", &WWW_URL)
+		.header("Referer", &format!("{}/latest", base_url))
+		.header("User-Agent", &ua)
+		.header("Origin", &base_url)
 		.html()?;
 	let cover = html.select(".mg-cover>mip-img").attr("src").read();
 	let title = html.select("h2.mg-title").text().read();
@@ -363,14 +375,16 @@ fn get_manga_details(id: String) -> Result<Manga> {
 }
 
 fn get_chapter_list_by_page(id: String, page: i32) -> Result<Vec<ObjectRef>> {
+	let base_url = get_url();
 	let url = format!(
 		"{}/v2.0/apis/manga/chapterByPage?code={}&page={}&lang=cn&order=asc",
-		WWW_URL, id, page
+		base_url, id, page
 	);
+	let ua = user_agent();
 	let json = Request::new(url, HttpMethod::Get)
-		.header("Referer", &format!("{}/manga/{}", WWW_URL, id))
-		.header("User-Agent", &UA)
-		.header("Origin", &WWW_URL)
+		.header("Referer", &format!("{}/manga/{}", base_url, id))
+		.header("User-Agent", &ua)
+		.header("Origin", &base_url)
 		.json()?;
 	let data = json.as_object()?;
 	let data = data.get("data").as_object()?;
@@ -394,6 +408,7 @@ fn get_chapter_list_by_page(id: String, page: i32) -> Result<Vec<ObjectRef>> {
 fn get_chapter_list(id: String) -> Result<Vec<Chapter>> {
 	let list = get_chapter_list_by_page(id, 1)?;
 	let mut chapters: Vec<Chapter> = Vec::new();
+	let base_url = get_url();
 
 	for (index, item) in list.iter().enumerate() {
 		let item = match item.0.clone().as_object() {
@@ -403,7 +418,7 @@ fn get_chapter_list(id: String) -> Result<Vec<Chapter>> {
 		let id = item.get("codes").as_string()?.read();
 		let title = item.get("chapterName").as_string()?.read();
 		let chapter = (index + 1) as f32;
-		let url = format!("{}/mangaread/{}", WWW_URL, id.clone());
+		let url = format!("{}/mangaread/{}", base_url, id.clone());
 		chapters.push(Chapter {
 			id,
 			title,
@@ -419,18 +434,20 @@ fn get_chapter_list(id: String) -> Result<Vec<Chapter>> {
 
 #[get_page_list]
 fn get_page_list(_: String, chapter_id: String) -> Result<Vec<Page>> {
+	let base_url = get_url();
 	let url = format!(
 		"{}/v2.0/apis/manga/reading?code={}&v=v3.1818134",
-		WWW_URL,
+		base_url,
 		chapter_id.clone()
 	);
+	let ua = user_agent();
 	let json = Request::new(url, HttpMethod::Get)
 		.header(
 			"Referer",
-			&format!("{}/mangaread/{}", WWW_URL, chapter_id.clone()),
+			&format!("{}/mangaread/{}", base_url, chapter_id.clone()),
 		)
-		.header("User-Agent", &UA)
-		.header("Origin", &WWW_URL)
+		.header("User-Agent", &ua)
+		.header("Origin", &base_url)
 		.header("X-Requested-With", "XMLHttpRequest")
 		.json()?;
 	let data = json.as_object()?;
@@ -457,8 +474,10 @@ fn get_page_list(_: String, chapter_id: String) -> Result<Vec<Page>> {
 
 #[modify_image_request]
 fn modify_image_request(request: Request) {
+	let ua = user_agent();
+	let base_url = get_url();
 	request
-		.header("Referer", &WWW_URL)
-		.header("User-Agent", &UA)
-		.header("Origin", &WWW_URL);
+		.header("Referer", &base_url)
+		.header("User-Agent", &ua)
+		.header("Origin", &base_url);
 }
