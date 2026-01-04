@@ -382,8 +382,9 @@ fn get_chapter_list_by_page(id: String, page: i32) -> Result<Vec<ObjectRef>> {
 	);
 	let ua = user_agent();
 	let json = Request::new(url, HttpMethod::Get)
-		.header("Referer", &base_url)
+		.header("Referer", &format!("{}/manga/{}", base_url, id))
 		.header("User-Agent", &ua)
+		.header("Origin", &base_url)
 		.json()?;
 	let data = json.as_object()?;
 	let data = data.get("data").as_object()?;
