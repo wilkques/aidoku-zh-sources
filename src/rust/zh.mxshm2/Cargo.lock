@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "aidoku-mxshm"
+name = "aidoku-mxshm2"
 version = "0.1.0"
 dependencies = [
  "aidoku",

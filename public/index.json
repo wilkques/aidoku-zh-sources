@@ -154,7 +154,7 @@
   },
   {
     "id": "zh.msxhm",
-    "name": "漫小肆韩漫1",
+    "name": "漫小肆韩漫",
     "file": "zh.msxhm-v6.aix",
     "icon": "zh.msxhm-v6.png",
     "lang": "zh",
@@ -164,10 +164,10 @@
   {
     "id": "zh.msxhm2",
     "name": "漫小肆韩漫2",
-    "file": "zh.msxhm-v7.aix",
-    "icon": "zh.msxhm-v6.png",
+    "file": "zh.msxhm2-v1.aix",
+    "icon": "zh.msxhm2-v1.png",
     "lang": "zh",
-    "version": 6,
+    "version": 1,
     "nsfw": 2
   },
   {
