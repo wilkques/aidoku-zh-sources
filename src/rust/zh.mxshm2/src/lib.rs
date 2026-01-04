@@ -27,12 +27,12 @@ fn get_url() -> String {
 }
 
 fn gen_request(url: String, method: HttpMethod) -> Request {
-	let userAgent = UserAgent();
+	let user_agent = user_agent();
 
-	Request::new(url, method).header("User-Agent", &userAgent)
+	Request::new(url, method).header("User-Agent", &user_agent)
 }
 
-fn UserAgent() -> String {
+fn user_agent() -> String {
 	defaults_get("User-Agent").unwrap().as_string().unwrap().read()
 }
 
