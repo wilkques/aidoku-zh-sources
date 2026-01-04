@@ -69,7 +69,7 @@ fn get_manga_list(filters: Vec<Filter>, page: i32) -> Result<MangaPageResult> {
 
 	let url = if query.is_empty() {
 		format!(
-			"{}/booklist?tag={}&area={}&end={}&page={}",
+			"{}/update?tag={}&area={}&end={}&page={}",
 			get_url(),
 			encode_uri(tag),
 			area,
