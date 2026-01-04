@@ -15,8 +15,6 @@ use aidoku::{
 };
 use alloc::string::ToString;
 
-const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
-
 const FILTER_TAG: [&str; 23] = [
 	"全部", "青春", "性感", "长腿", "多人", "御姐", "巨乳", "新婚", "媳妇", "暧昧", "清纯", "调教",
 	"少妇", "风骚", "同居", "淫乱", "好友", "女神", "诱惑", "偷情", "出轨", "正妹", "家教",
@@ -29,7 +27,13 @@ fn get_url() -> String {
 }
 
 fn gen_request(url: String, method: HttpMethod) -> Request {
-	Request::new(url, method).header("User-Agent", UA)
+	let userAgent = UserAgent();
+
+	Request::new(url, method).header("User-Agent", &userAgent)
+}
+
+fn UserAgent() -> String {
+	defaults_get("User-Agent").unwrap().as_string().unwrap().read()
 }
 
 #[get_manga_list]
