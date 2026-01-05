@@ -21,6 +21,7 @@ const FILTER_TAG: [&str; 23] = [
 ];
 const FILTER_AREA: [&str; 4] = ["-1", "1", "2", "3"];
 const FILTER_END: [&str; 3] = ["-1", "0", "1"];
+const FILTER_MANGA_LIST: [&str; 2] = ["booklist", "update"];
 
 fn get_url() -> String {
 	defaults_get("url").unwrap().as_string().unwrap().read()
@@ -42,6 +43,7 @@ fn get_manga_list(filters: Vec<Filter>, page: i32) -> Result<MangaPageResult> {
 	let mut tag = String::new();
 	let mut area = String::new();
 	let mut end = String::new();
+	let mut manga_list = String::new();
 
 	for filter in filters {
 		match filter.kind {
@@ -60,6 +62,9 @@ fn get_manga_list(filters: Vec<Filter>, page: i32) -> Result<MangaPageResult> {
 					"进度" => {
 						end = FILTER_END[index].to_string();
 					}
+					"列表" => {
+						manga_list = FILTER_MANGA_LIST[index].to_string();
+					}
 					_ => continue,
 				}
 			}
@@ -69,8 +74,9 @@ fn get_manga_list(filters: Vec<Filter>, page: i32) -> Result<MangaPageResult> {
 
 	let url = if query.is_empty() {
 		format!(
-			"{}/update?tag={}&area={}&end={}&page={}",
+			"{}/{}?tag={}&area={}&end={}&page={}",
 			get_url(),
+			manga_list,
 			encode_uri(tag),
 			area,
 			end,

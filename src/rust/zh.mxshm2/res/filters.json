@@ -4,6 +4,11 @@
   },
   {
     "type": "select",
+    "name": "列表",
+    "options": ["全部", "最新"]
+  },
+  {
+    "type": "select",
     "name": "题材",
     "options": [
       "全部",
